@@ -32,6 +32,17 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# database
+*.db
+
+# misc
+*.zip
+*.pdf
+prisma/test-connection.ts
+prisma/push-schema.ts
+prisma/seed-turso.ts
 
 # vercel
 .vercel
@@ -39,3 +50,5 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/app/generated/prisma
