@@ -18,7 +18,17 @@ export default async function ProduitsPage({ searchParams }: { searchParams: Sea
   const products = await prisma.product.findMany({
     where: {
       ...(cat ? { category: { slug: cat } } : {}),
-      ...(q ? { name: { contains: q } } : {}),
+      ...(q
+        ? {
+            AND: q.trim().split(/\s+/).filter(Boolean).slice(0, 5).map((w) => ({
+              OR: [
+                { name: { contains: w } },
+                { compatible: { contains: w } },
+                { category: { name: { contains: w } } },
+              ],
+            })),
+          }
+        : {}),
     },
     include: { category: true },
     orderBy: { createdAt: "desc" },

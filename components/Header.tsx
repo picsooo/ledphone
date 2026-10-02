@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useState, useEffect } from "react";
 import { useCart } from "./CartProvider";
 import { usePathname } from "next/navigation";
+import SearchBox from "./SearchBox";
 
 export default function Header() {
   const { count, openDrawer } = useCart();
@@ -70,6 +71,7 @@ export default function Header() {
 
         {/* Actions */}
         <div className="flex items-center gap-2">
+          <SearchBox dark={dark} />
           {/* Cart */}
           <button
             onClick={openDrawer}

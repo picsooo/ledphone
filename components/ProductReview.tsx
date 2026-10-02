@@ -78,6 +78,7 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
   const [onlyTodo, setOnlyTodo] = useState(false);
   const [catFilter, setCatFilter] = useState("all");
   const [busy, setBusy] = useState(false);
+  const [lastSaved, setLastSaved] = useState<{ name: string; slug: string; price: number } | null>(null);
   const [toast, setToast] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -163,6 +164,7 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Erreur");
         setProducts((ps) => ps.map((p) => (p.id === current.id ? data : p)));
+        setLastSaved({ name: data.name, slug: data.slug, price: data.sellPrice });
       }
       const next = new Set(done);
       next.add(current.id);
@@ -236,7 +238,7 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-6 pb-32">
+      <div className="max-w-5xl mx-auto px-4 py-6 pb-44">
         {!current || !draft ? (
           <div className="bg-white rounded-2xl border border-slate-100 p-12 text-center">
             <div className="text-5xl mb-3">🎉</div>
@@ -328,8 +330,22 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
       </div>
 
       {/* Action bar */}
-      {current && draft && (
+      {((current && draft) || lastSaved) && (
         <div className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-100" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+          {lastSaved && (
+            <div className="bg-emerald-50 border-b border-emerald-100">
+              <div className="max-w-5xl mx-auto px-4 py-2 flex items-center gap-3 text-sm">
+                <span className="text-emerald-700 truncate flex-1">
+                  ✓ <b>{lastSaved.name}</b> enregistré à {lastSaved.price.toLocaleString("fr-DZ")} DA
+                </span>
+                <a href={`/produits/${lastSaved.slug}`} target="_blank" rel="noreferrer" className="shrink-0 font-semibold text-emerald-700 underline">
+                  Vérifier sur le site ↗
+                </a>
+                <button onClick={() => setLastSaved(null)} className="text-emerald-500" aria-label="Fermer">✕</button>
+              </div>
+            </div>
+          )}
+          {current && draft && (
           <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-2">
             <button onClick={() => go(-1)} disabled={safeIndex === 0 || busy} className="w-11 h-11 rounded-xl border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Précédent">←</button>
             <button onClick={remove} disabled={busy} className="px-4 h-11 rounded-xl border border-red-200 text-red-600 font-semibold text-sm hover:bg-red-50 disabled:opacity-50">
@@ -345,6 +361,7 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
             </button>
             <button onClick={() => go(1)} disabled={safeIndex >= list.length - 1 || busy} className="w-11 h-11 rounded-xl border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Suivant">→</button>
           </div>
+          )}
         </div>
       )}
 
