@@ -4,11 +4,13 @@ import Link from "next/link";
 import Image from "next/image";
 import DeleteProductButton from "@/components/DeleteProductButton";
 import LogoutButton from "@/components/LogoutButton";
+import { getReviewSummary } from "@/lib/review";
 
 export const metadata = { title: "Admin — LED Phone" };
 
 export default async function AdminPage() {
-  await requireAdmin();
+  const admin = await requireAdmin();
+  const review = await getReviewSummary(admin.username).catch(() => null);
 
   const [products, categories, orders] = await Promise.all([
     prisma.product.findMany({ include: { category: true }, orderBy: { createdAt: "desc" } }),
@@ -47,6 +49,22 @@ export default async function AdminPage() {
             <LogoutButton />
           </div>
         </div>
+
+        {review && review.remaining > 0 && (
+          <Link
+            href="/admin/revue"
+            className="flex flex-wrap items-center gap-4 bg-emerald-600 hover:bg-emerald-500 transition-colors text-white rounded-2xl p-5 mb-8"
+          >
+            <div className="text-3xl">📋</div>
+            <div className="flex-1 min-w-[200px]">
+              <div className="font-black text-lg">Vérification des produits en cours</div>
+              <div className="text-emerald-50 text-sm">
+                {review.validated} vérifiés · {review.modified} modifiés · {review.deleted} supprimés · <b>{review.remaining} restants</b>
+              </div>
+            </div>
+            <span className="font-bold bg-white/15 rounded-xl px-4 py-2">Reprendre →</span>
+          </Link>
+        )}
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">

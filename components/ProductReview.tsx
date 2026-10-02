@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { logoutAction } from "@/app/actions/auth";
 
 type Category = { id: number; name: string; icon: string };
 type Product = {
@@ -75,6 +76,11 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
   const [index, setIndex] = useState(0);
   const [edit, setEdit] = useState<{ id: number; d: Draft } | null>(null);
   const [done, setDone] = useState<Set<number>>(new Set());
+  const [modified, setModified] = useState<Set<number>>(new Set());
+  const [deleted, setDeleted] = useState(0);
+  const [startedAt, setStartedAt] = useState(() => new Date().toISOString());
+  const [phase, setPhase] = useState<"review" | "resume" | "paused">("review");
+  const [saving, setSaving] = useState(false);
   const [onlyTodo, setOnlyTodo] = useState(false);
   const [catFilter, setCatFilter] = useState("all");
   const [busy, setBusy] = useState(false);
@@ -90,26 +96,57 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
   };
 
   useEffect(() => {
-    fetch("/api/admin/products")
-      .then((r) => r.json())
-      .then((d) => {
-        try {
-          setDone(new Set(JSON.parse(localStorage.getItem(DONE_KEY) || "[]")));
-        } catch {}
-        setProducts(d.products || []);
-        setCategories(d.categories || []);
-        if (initialId) {
-          const i = (d.products || []).findIndex((p: Product) => p.id === initialId);
-          if (i >= 0) setIndex(i);
+    Promise.all([
+      fetch("/api/admin/products").then((r) => r.json()),
+      fetch("/api/admin/review-state").then((r) => r.json()).catch(() => ({ state: null })),
+    ])
+      .then(([d, r]) => {
+        const prods: Product[] = d.products || [];
+        const st = r.state as { done: number[]; modified: number[]; deleted: number; lastId: number | null; startedAt: string } | null;
+        let doneIds = new Set<number>(st?.done || []);
+        // Older progress kept in this browser before it was saved on the server
+        if (!st) {
+          try { doneIds = new Set(JSON.parse(localStorage.getItem(DONE_KEY) || "[]")); } catch {}
         }
+        const modIds = new Set<number>(st?.modified || []);
+        setProducts(prods);
+        setCategories(d.categories || []);
+        setDone(doneIds);
+        setModified(modIds);
+        setDeleted(st?.deleted || 0);
+        if (st?.startedAt) setStartedAt(st.startedAt);
+
+        if (initialId) {
+          const i = prods.findIndex((p) => p.id === initialId);
+          if (i >= 0) setIndex(i);
+        } else {
+          // Resume at the first unchecked product from where they stopped
+          const from = Math.max(0, prods.findIndex((p) => p.id === st?.lastId));
+          const order = [...prods.slice(from), ...prods.slice(0, from)];
+          const next = order.find((p) => !doneIds.has(p.id));
+          const i = next ? prods.indexOf(next) : 0;
+          setIndex(i);
+          const remaining = prods.filter((p) => !doneIds.has(p.id)).length;
+          const started = doneIds.size > 0 || modIds.size > 0 || (st?.deleted || 0) > 0;
+          if (started && remaining > 0) setPhase("resume");
+        }
+        setLoading(false);
       })
-      .finally(() => setLoading(false));
+      .catch(() => setLoading(false));
   }, [initialId]);
 
-  const saveDone = (next: Set<number>) => {
-    setDone(next);
-    try { localStorage.setItem(DONE_KEY, JSON.stringify([...next])); } catch {}
-  };
+  const persist = useCallback(
+    (state: { done: Set<number>; modified: Set<number>; deleted: number; lastId: number | null; startedAt: string }) =>
+      fetch("/api/admin/review-state", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        keepalive: true,
+        body: JSON.stringify({ ...state, done: [...state.done], modified: [...state.modified] }),
+      }).then((r) => r.ok),
+    []
+  );
+
+  const saveDone = (next: Set<number>) => setDone(next);
 
   const list = useMemo(
     () =>
@@ -129,6 +166,16 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
     if (!current || !draft) return false;
     return JSON.stringify(toDraft(current)) !== JSON.stringify(draft);
   }, [current, draft]);
+
+  // Auto-save progress (debounced) while reviewing
+  const currentId = current?.id ?? null;
+  useEffect(() => {
+    if (loading || phase !== "review") return;
+    const t = setTimeout(() => {
+      persist({ done, modified, deleted, lastId: currentId, startedAt }).catch(() => {});
+    }, 700);
+    return () => clearTimeout(t);
+  }, [loading, phase, done, modified, deleted, currentId, startedAt, persist]);
 
   const go = useCallback(
     (delta: number) => setIndex((i) => Math.min(Math.max(0, i + delta), Math.max(0, list.length - 1))),
@@ -167,6 +214,7 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
         if (!res.ok) throw new Error(data.error || "Erreur");
         setProducts((ps) => ps.map((p) => (p.id === current.id ? data : p)));
         setLastSaved({ name: data.name, slug: data.slug, price: data.sellPrice });
+        setModified((m) => new Set(m).add(current.id));
       }
       const next = new Set(done);
       next.add(current.id);
@@ -190,6 +238,7 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
       setProducts((ps) => ps.filter((p) => p.id !== current.id));
+      setDeleted((n) => n + 1);
       flash("Produit supprimé");
     } catch (e) {
       flash(e instanceof Error ? e.message : "Erreur réseau", "err");
@@ -211,9 +260,102 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
   const total = products.length;
   const validated = products.filter((p) => done.has(p.id)).length;
   const pct = total ? Math.round((validated / total) * 100) : 0;
+  const remaining = total - validated;
+  const modifiedCount = products.filter((p) => modified.has(p.id)).length;
+
+  const pauseForLater = async () => {
+    if (dirty && !confirm("Ce produit a des modifications non enregistrées. Les abandonner ?")) return;
+    setSaving(true);
+    const ok = await persist({ done, modified, deleted, lastId: currentId, startedAt }).catch(() => false);
+    setSaving(false);
+    if (!ok) return flash("Impossible de sauvegarder, réessayez.", "err");
+    setEdit(null);
+    setPhase("paused");
+  };
+
+  const restart = async () => {
+    if (!confirm("Recommencer la vérification depuis le premier produit ?")) return;
+    const now = new Date().toISOString();
+    setDone(new Set());
+    setModified(new Set());
+    setDeleted(0);
+    setStartedAt(now);
+    setIndex(0);
+    setOnlyTodo(false);
+    setCatFilter("all");
+    setPhase("review");
+  };
+
+  const fmtDate = (iso: string) =>
+    new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
+
+  const recap = (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-6">
+      {[
+        { n: validated, l: "vérifiés", c: "text-emerald-600" },
+        { n: modifiedCount, l: "modifiés", c: "text-sky-600" },
+        { n: deleted, l: "supprimés", c: "text-red-500" },
+        { n: remaining, l: "restants", c: "text-slate-900" },
+      ].map((x) => (
+        <div key={x.l} className="bg-slate-50 rounded-xl p-4 text-center">
+          <div className={`text-3xl font-black ${x.c}`}>{x.n}</div>
+          <div className="text-xs text-slate-500 mt-1">{x.l}</div>
+        </div>
+      ))}
+    </div>
+  );
 
   if (loading) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-400">Chargement des produits…</div>;
+  }
+
+  if (phase !== "review") {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-10">
+        <div className="w-full max-w-lg bg-white rounded-2xl border border-slate-100 shadow-sm p-6 sm:p-8">
+          {phase === "resume" ? (
+            <>
+              <div className="text-4xl mb-2">👋</div>
+              <h1 className="text-2xl font-black text-slate-900">Bon retour !</h1>
+              <p className="text-slate-500 mt-1">Vérification commencée le {fmtDate(startedAt)}. Voici où tu en es :</p>
+              {recap}
+              <div className="h-2 bg-slate-100 rounded-full overflow-hidden mb-6">
+                <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} />
+              </div>
+              <button onClick={() => setPhase("review")} className="w-full h-12 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-500">
+                Reprendre là où je me suis arrêté →
+              </button>
+              <button onClick={restart} className="w-full mt-3 text-sm text-slate-400 underline">
+                Recommencer depuis le début
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="text-4xl mb-2">💾</div>
+              <h1 className="text-2xl font-black text-slate-900">C&apos;est enregistré</h1>
+              <p className="text-slate-500 mt-1">
+                Il te reste <b className="text-slate-900">{remaining} produit{remaining > 1 ? "s" : ""}</b> à vérifier.
+                À ta prochaine connexion, tu reprendras exactement ici.
+              </p>
+              {recap}
+              <button onClick={() => setPhase("review")} className="w-full h-12 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-500">
+                Finalement, je continue
+              </button>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <Link href="/admin" className="h-11 rounded-xl border border-slate-200 text-slate-700 text-sm font-semibold flex items-center justify-center">
+                  Tableau de bord
+                </Link>
+                <form action={logoutAction}>
+                  <button type="submit" className="w-full h-11 rounded-xl border border-slate-200 text-slate-700 text-sm font-semibold">
+                    Se déconnecter
+                  </button>
+                </form>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -240,13 +382,13 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-4 py-6 pb-44">
+      <div className="max-w-5xl mx-auto px-4 py-6 pb-52">
         {!current || !draft ? (
           <div className="bg-white rounded-2xl border border-slate-100 p-12 text-center">
             <div className="text-5xl mb-3">🎉</div>
             <p className="text-slate-900 font-bold text-lg">Aucun produit à revoir ici.</p>
             {onlyTodo && validated > 0 && (
-              <button onClick={() => { saveDone(new Set()); }} className="mt-4 text-sm text-slate-500 underline">
+              <button onClick={restart} className="mt-4 text-sm text-slate-500 underline">
                 Recommencer la revue depuis le début
               </button>
             )}
@@ -351,7 +493,7 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
       </div>
 
       {/* Action bar */}
-      {((current && draft) || lastSaved) && (
+      {(current || lastSaved || total > 0) && (
         <div className="fixed bottom-0 inset-x-0 z-20 bg-white border-t border-slate-100" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
           {lastSaved && (
             <div className="bg-emerald-50 border-b border-emerald-100">
@@ -366,6 +508,18 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
               </div>
             </div>
           )}
+          <div className="max-w-5xl mx-auto px-4 pt-2.5 flex items-center justify-between gap-3 text-sm">
+            <span className="text-slate-600">
+              {remaining > 0 ? (
+                <>Il te reste <b className="text-slate-900">{remaining} produit{remaining > 1 ? "s" : ""}</b> à vérifier</>
+              ) : (
+                <b className="text-emerald-600">🎉 Tous les produits sont vérifiés</b>
+              )}
+            </span>
+            <button onClick={pauseForLater} disabled={saving || busy} className="shrink-0 font-semibold text-slate-500 hover:text-slate-900 underline disabled:opacity-50">
+              {saving ? "Sauvegarde…" : remaining > 0 ? "Continuer plus tard" : "Terminer"}
+            </button>
+          </div>
           {current && draft && (
           <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-2">
             <button onClick={() => go(-1)} disabled={safeIndex === 0 || busy} className="w-11 h-11 rounded-xl border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Précédent">←</button>
