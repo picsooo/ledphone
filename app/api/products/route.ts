@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getAdmin } from "@/lib/auth";
 
 export async function POST(req: Request) {
+  if (!(await getAdmin())) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   try {
     const body = await req.json();
     const { name, slug, description, buyPrice, sellPrice, image, compatible, stock, featured, categoryId } = body;

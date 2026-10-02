@@ -30,6 +30,12 @@ export default async function AdminPage() {
           </div>
           <div className="flex items-center gap-3">
             <Link
+              href="/admin/revue"
+              className="px-5 py-2.5 text-sm font-semibold rounded-xl bg-slate-900 text-white hover:bg-slate-700 transition-colors"
+            >
+              Revue des produits
+            </Link>
+            <Link
               href="/admin/produit/nouveau"
               className="btn-primary px-5 py-2.5 text-sm flex items-center gap-2"
             >
@@ -126,7 +132,7 @@ export default async function AdminPage() {
                             </svg>
                           </Link>
                           <Link
-                            href={`/admin/produit/${product.id}`}
+                            href={`/admin/revue?id=${product.id}`}
                             className="text-slate-400 hover:text-amber-500 transition-colors"
                             title="Modifier"
                           >
