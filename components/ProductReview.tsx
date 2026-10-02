@@ -81,6 +81,8 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
   const [lastSaved, setLastSaved] = useState<{ name: string; slug: string; price: number } | null>(null);
   const [toast, setToast] = useState<{ text: string; tone: "ok" | "err" } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const camRef = useRef<HTMLInputElement>(null);
+  const [showUrl, setShowUrl] = useState(false);
 
   const flash = (text: string, tone: "ok" | "err" = "ok") => {
     setToast({ text, tone });
@@ -263,28 +265,47 @@ export default function ProductReview({ initialId }: { initialId?: number }) {
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden grid md:grid-cols-2">
               {/* Photo */}
               <div className="bg-slate-50 p-5 flex flex-col gap-3">
-                <div className="aspect-square rounded-xl overflow-hidden bg-white border border-slate-100 flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="relative aspect-square rounded-xl overflow-hidden bg-white border border-slate-100 flex items-center justify-center group"
+                >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={draft.image} alt={draft.name} className="w-full h-full object-contain" />
-                </div>
-                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { onPhoto(e.target.files?.[0]); e.target.value = ""; }} />
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => fileRef.current?.click()} className="flex-1 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-700">
-                    📷 Changer la photo
-                  </button>
+                  <span className="absolute bottom-2 right-2 bg-black/60 text-white text-xs font-semibold px-2.5 py-1 rounded-full">
+                    Toucher pour changer
+                  </span>
                   {draft.image !== current.image && (
-                    <button type="button" onClick={() => set("image", current.image)} className="px-3 rounded-xl border border-slate-200 text-sm text-slate-600">
-                      Annuler
-                    </button>
+                    <span className="absolute top-2 left-2 bg-amber-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">Nouvelle photo</span>
                   )}
+                </button>
+                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { onPhoto(e.target.files?.[0]); e.target.value = ""; }} />
+                <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { onPhoto(e.target.files?.[0]); e.target.value = ""; }} />
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => fileRef.current?.click()} className="py-3 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-700">
+                    🖼️ Galerie
+                  </button>
+                  <button type="button" onClick={() => camRef.current?.click()} className="py-3 rounded-xl bg-white border border-slate-200 text-slate-800 text-sm font-semibold">
+                    📷 Prendre une photo
+                  </button>
                 </div>
-                <input
-                  type="text"
-                  value={draft.image.startsWith("data:") ? "" : draft.image}
-                  onChange={(e) => set("image", e.target.value)}
-                  placeholder={draft.image.startsWith("data:") ? "Nouvelle photo importée" : "…ou coller un lien d'image"}
-                  className="input-premium text-xs"
-                />
+                <div className="flex items-center justify-between text-xs">
+                  {draft.image !== current.image ? (
+                    <button type="button" onClick={() => set("image", current.image)} className="text-slate-500 underline">Remettre l&apos;ancienne photo</button>
+                  ) : <span />}
+                  <button type="button" onClick={() => setShowUrl((v) => !v)} className="text-slate-400 underline">
+                    {showUrl ? "Masquer le lien" : "Utiliser un lien d'image"}
+                  </button>
+                </div>
+                {showUrl && (
+                  <input
+                    type="text"
+                    value={draft.image.startsWith("data:") ? "" : draft.image}
+                    onChange={(e) => set("image", e.target.value)}
+                    placeholder="Coller un lien d'image (https://…)"
+                    className="input-premium text-xs"
+                  />
+                )}
               </div>
 
               {/* Fields */}
