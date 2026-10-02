@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAdmin } from "@/lib/auth";
+import { revalidatePath } from "next/cache";
 
 export async function POST(req: Request) {
   if (!(await getAdmin())) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
@@ -27,6 +28,7 @@ export async function POST(req: Request) {
       },
     });
 
+    revalidatePath("/", "layout");
     return NextResponse.json({ success: true, product });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Erreur serveur";

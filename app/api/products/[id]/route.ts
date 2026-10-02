@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getAdmin } from "@/lib/auth";
+import { revalidatePath } from "next/cache";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -19,6 +20,7 @@ export async function DELETE(_req: Request, { params }: RouteParams) {
       );
     }
     await prisma.product.delete({ where: { id: productId } });
+    revalidatePath("/", "layout");
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ error: "Erreur suppression" }, { status: 500 });
@@ -48,6 +50,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       data,
       include: { category: true, _count: { select: { orderItems: true } } },
     });
+    revalidatePath("/", "layout");
     return NextResponse.json(product);
   } catch {
     return NextResponse.json({ error: "Erreur mise à jour" }, { status: 500 });
